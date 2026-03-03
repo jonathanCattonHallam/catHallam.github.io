@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anomaly Detection Dashboard | Hallam</title>
+<style>
+:root {
+  --primary:#1a56db; --anomaly:#e02424; --warning:#f97316;
+  --bg:#f3f4f6; --card:#ffffff; --border:#e5e7eb;
+  --text:#111827; --muted:#6b7280; --brand-orange:#ff6b00;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:14px;}
+
+/* HEADER */
+.header{background:#0f172a;color:white;padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3);}
+.header-logo{font-size:22px;font-weight:800;color:var(--brand-orange);letter-spacing:-.5px;flex-shrink:0;}
+.header-divider{width:1px;height:28px;background:rgba(255,255,255,.2);flex-shrink:0;}
+.header-title{font-size:16px;font-weight:600;color:rgba(255,255,255,.9);}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:12px;}
+.header-updated{font-size:11px;color:rgba(255,255,255,.45);white-space:nowrap;}
+.btn-refresh{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:white;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;}
+.btn-refresh:hover{background:rgba(255,255,255,.2);}
+.btn-refresh.spinning .refresh-icon{animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.refresh-icon{display:inline-block;}
+
+/* CONFIG BANNER */
+#configBanner{background:#fefce8;border-bottom:2px solid #fbbf24;padding:12px 24px;display:flex;align-items:center;gap:12px;font-size:13px;}
+#configBanner.hidden{display:none;}
+.config-icon{font-size:18px;}
+.config-text{flex:1;color:#92400e;}
+.config-text code{background:#fef3c7;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px;}
+#urlInput{flex:1;max-width:500px;padding:6px 10px;border:1px solid #d97706;border-radius:6px;font-size:12px;font-family:monospace;}
+.btn-load{background:#d97706;color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap;}
+.btn-load:hover{background:#b45309;}
+
+/* LOADING */
+#loadingOverlay{position:fixed;inset:0;background:rgba(15,23,42,.88);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;color:white;gap:14px;}
+.spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,.2);border-top-color:var(--brand-orange);border-radius:50%;animation:spin .8s linear infinite;}
+#loadingMsg{font-size:14px;color:rgba(255,255,255,.75);text-align:center;max-width:360px;}
+#errorBox{display:none;background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:14px 20px;margin:16px 24px;border-radius:8px;font-size:13px;line-height:1.6;}
+
+/* SUMMARY BAR */
+.summary-bar{background:var(--card);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;gap:24px;align-items:center;flex-wrap:wrap;}
+.summary-stat{display:flex;flex-direction:column;}
+.summary-stat .val{font-size:22px;font-weight:700;line-height:1;}
+.summary-stat .lbl{font-size:11px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.5px;}
+.summary-stat.anomaly .val{color:var(--anomaly);}
+.summary-divider{width:1px;height:36px;background:var(--border);}
+.filter-bar{margin-left:auto;display:flex;gap:10px;align-items:center;}
+.filter-bar select{border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:13px;background:white;cursor:pointer;}
+.filter-bar label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:5px;cursor:pointer;}
+
+/* ANOMALY SUMMARY */
+.anomaly-summary{margin:16px 24px;background:var(--card);border-radius:10px;border:1px solid var(--border);overflow:hidden;}
+.anomaly-summary-header{padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px;background:#fafafa;display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;}
+.anomaly-summary-header:hover{background:#f0f0f0;}
+.anomaly-summary-body{padding:12px 16px;overflow-x:auto;}
+.anomaly-table{width:100%;border-collapse:collapse;font-size:12px;}
+.anomaly-table th{text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);text-transform:uppercase;font-size:11px;letter-spacing:.4px;}
+.anomaly-table td{padding:6px 10px;border-bottom:1px solid #f5f5f5;}
+.anomaly-table tr:last-child td{border-bottom:none;}
+.anomaly-table tr:hover td{background:#f9fafb;}
+.badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;}
+.badge-red{background:#fee2e2;color:var(--anomaly);}
+.badge-green{background:#d1fae5;color:#065f46;}
+.badge-orange{background:#fff7ed;color:#c2410c;}
+.badge-grey{background:#f3f4f6;color:var(--muted);}
+.badge-blue{background:#eff6ff;color:#1e40af;}
+.jump-link{color:var(--primary);cursor:pointer;text-decoration:none;}
+.jump-link:hover{text-decoration:underline;}
+
+/* MAIN */
+.main{padding:0 24px 40px;}
+.controls-bar{padding:10px 24px;display:flex;gap:8px;align-items:center;}
+.btn-sm{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:white;font-size:12px;cursor:pointer;}
+.btn-sm:hover{background:#f3f4f6;}
+.legend-bar{font-size:11px;color:var(--muted);margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.legend-item{display:flex;align-items:center;gap:4px;}
+.l-dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+.l-line{width:18px;height:2px;display:inline-block;}
+.l-rect{width:16px;height:10px;display:inline-block;border:1px solid rgba(26,86,219,.3);}
+
+/* ACCORDIONS */
+.client-section{margin:16px 0;border-radius:10px;border:1px solid var(--border);overflow:hidden;background:var(--card);}
+.client-header{padding:13px 18px;background:#0f172a;color:white;cursor:pointer;display:flex;align-items:center;gap:10px;user-select:none;}
+.client-header:hover{background:#1e293b;}
+.client-name{font-weight:700;font-size:14px;flex:1;}
+.client-meta{font-size:12px;color:rgba(255,255,255,.5);}
+.client-anomaly-badge{background:var(--anomaly);color:white;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;}
+.chevron{font-size:12px;transition:transform .2s;}
+.client-header.collapsed .chevron{transform:rotate(-90deg);}
+.client-body{display:block;}
+.client-body.hidden{display:none;}
+.brand-section{border-top:1px solid var(--border);}
+.brand-header{padding:10px 18px 10px 28px;background:#f8fafc;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);user-select:none;}
+.brand-header:hover{background:#f1f5f9;}
+.brand-name{font-weight:600;font-size:13px;color:#334155;flex:1;}
+.brand-meta{font-size:11px;color:var(--muted);}
+.brand-anomaly{color:var(--anomaly);font-size:11px;font-weight:600;}
+.brand-chevron{font-size:11px;color:var(--muted);transition:transform .2s;}
+.brand-header.collapsed .brand-chevron{transform:rotate(-90deg);}
+.brand-body{display:block;}
+.brand-body.hidden{display:none;}
+
+/* CHANNEL CARDS */
+.channels-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:0;}
+.channel-card{padding:14px 18px 10px 28px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);}
+.channel-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.channel-name{font-weight:600;font-size:13px;flex:1;}
+.channel-badges{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.metric-section{margin-bottom:8px;}
+.metric-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+.chart-main{width:100%;height:190px;}
+.chart-sm{width:100%;height:155px;}
+.conv-cpa-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.no-conv-note{font-size:11px;color:var(--muted);font-style:italic;padding:8px 0;}
+.slider-row{display:flex;align-items:center;gap:8px;margin-top:4px;padding-top:4px;border-top:1px dashed #e5e7eb;}
+.slider-label{font-size:10px;color:var(--muted);white-space:nowrap;}
+.sigma-slider{flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;background:linear-gradient(to right,var(--primary) 0%,var(--primary) var(--fill,60%),#d1d5db var(--fill,60%),#d1d5db 100%);outline:none;cursor:pointer;}
+.sigma-slider::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--primary);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+.sigma-slider::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--primary);cursor:pointer;border:none;}
+.sigma-val{font-size:11px;font-weight:700;color:var(--primary);min-width:30px;text-align:center;}
+.no-data{text-align:center;padding:20px;color:var(--muted);font-size:12px;}
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingMsg">Loading libraries…</div>
+</div>
+<div id="errorBox"></div>
+
+<!-- CONFIG BANNER — shown until a valid URL is entered -->
+<div id="configBanner">
+  <span class="config-icon">📊</span>
+  <span class="config-text">
+    Paste your Google Sheet CSV URL below. In Google Sheets go to
+    <strong>File → Share → Publish to web</strong>, choose <em>Comma-separated values (.csv)</em>,
+    then click <strong>Publish</strong> and paste the link here.
+  </span>
+  <input id="urlInput" type="text" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?output=csv" />
+  <button class="btn-load" onclick="loadFromInput()">Load data</button>
+</div>
+
+<div class="header">
+  <div class="header-logo">hallam</div>
+  <div class="header-divider"></div>
+  <div class="header-title">Spend &amp; Conversion Anomaly Detection Dashboard</div>
+  <div class="header-right">
+    <span class="header-updated" id="headerUpdated"></span>
+    <button class="btn-refresh" id="refreshBtn" onclick="triggerRefresh()" style="display:none">
+      <span class="refresh-icon">↻</span> Refresh data
+    </button>
+  </div>
+</div>
+
+<div class="summary-bar">
+  <div class="summary-stat"><span class="val" id="statAccounts">—</span><span class="lbl">Accounts</span></div>
+  <div class="summary-divider"></div>
+  <div class="summary-stat"><span class="val" id="statClients">—</span><span class="lbl">Clients</span></div>
+  <div class="summary-divider"></div>
+  <div class="summary-stat anomaly"><span class="val" id="statAnomalies">—</span><span class="lbl">Anomalies (2σ default)</span></div>
+  <div class="summary-divider"></div>
+  <div class="summary-stat"><span class="val" id="statDateRange">—</span><span class="lbl">Date Range</span></div>
+  <div class="filter-bar">
+    <select id="clientFilter" onchange="applyFilters()"><option value="">All Clients</option></select>
+    <label><input type="checkbox" id="anomalyOnly" onchange="applyFilters()"> Anomalies only</label>
+  </div>
+</div>
+
+<div class="main">
+  <div class="anomaly-summary">
+    <div class="anomaly-summary-header" onclick="toggleSection('anomalySummaryBody',this)">
+      <span>⚠️</span><span>Anomaly Summary — sorted by most recent</span>
+      <span style="margin-left:auto;font-size:11px;color:#999" id="summaryToggleLabel">click to collapse ▲</span>
+    </div>
+    <div id="anomalySummaryBody" class="anomaly-summary-body">
+      <table class="anomaly-table">
+        <thead><tr>
+          <th>Client</th><th>Brand</th><th>Channel</th><th>Metric</th>
+          <th>Anomalies</th><th>Last Anomaly</th><th>Unusualness</th>
+        </tr></thead>
+        <tbody id="anomalyTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="controls-bar">
+    <button class="btn-sm" onclick="expandAll()">Expand All</button>
+    <button class="btn-sm" onclick="collapseAll()">Collapse All</button>
+    <div class="legend-bar">
+      <span class="legend-item"><span class="l-dot" style="background:#e02424"></span> Magnitude anomaly</span>
+      <span class="legend-item"><span class="l-dot" style="background:#f97316"></span> Extended zero streak</span>
+      <span class="legend-item"><span class="l-line" style="background:#1a56db"></span> WD/WE EWMA (14d)</span>
+      <span class="legend-item"><span class="l-line" style="background:#94a3b8"></span> Actual</span>
+      <span class="legend-item"><span class="l-rect" style="background:rgba(26,86,219,.12)"></span> ±σ band</span>
+    </div>
+  </div>
+
+  <div id="clientsContainer"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// CONFIGURATION
+// ══════════════════════════════════════════════════════════════════════════════
+// Paste your published Google Sheet CSV URL here to skip the banner on load,
+// or leave blank and enter it in the banner instead.
+var SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRan_3cgZ6Bvee-La2bMVbVUAeFc_oF7lat54kw_xxV5weyEtGhG7rny_umIaDjSO4draDl_72OWbfr/pub?gid=2067782941&single=true&output=csv';
+
+// Auto-refresh interval in minutes. Set to 0 to disable.
+var AUTO_REFRESH_MINUTES = 30;
+
+// Expected CSV column headers (must match your Google Sheet exactly)
+var COL_DATE  = 'Date';
+var COL_CLIENT = 'Client';
+var COL_BRAND  = 'Brand Entity';
+var COL_COST   = 'Cost (*)';
+var COL_CHANNEL = 'Channel';
+var COL_CONV   = 'Platform Conversions';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════════════════
+var DASHBOARD_DATA = null;
+var ACCOUNT_DATA   = {};
+var defaultSigma   = 2.0;
+var allChartEls    = [];
+var renderedCharts = {};
+var chartRegistry  = {};
+var autoRefreshTimer = null;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CSV FETCH & PROCESSING
+// ══════════════════════════════════════════════════════════════════════════════
+function fetchAndProcess(url, onDone) {
+  setLoading('Fetching data from Google Sheets…');
+  // Use fetch() rather than PapaParse's XHR downloader — fetch handles
+  // Google Sheets' redirect chain cleanly, avoiding [object ProgressEvent] CORS errors.
+  fetch(url)
+    .then(function(response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status + ' ' + response.statusText);
+      return response.text();
+    })
+    .then(function(csvText) {
+      var results = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true
+      });
+      if (!results.data || results.data.length === 0) {
+        showError('The sheet returned no data. Check the URL and sharing settings.');
+        return;
+      }
+      // Validate headers
+      var firstRow = results.data[0];
+      var missing = [COL_DATE,COL_CLIENT,COL_BRAND,COL_COST,COL_CHANNEL,COL_CONV].filter(function(h){return !(h in firstRow);});
+      if (missing.length > 0) {
+        showError('Missing expected columns: ' + missing.join(', ') + '. Check your sheet matches the required format.');
+        return;
+      }
+      setLoading('Processing data…');
+      setTimeout(function() {
+        try {
+          DASHBOARD_DATA = processCSV(results.data);
+          onDone();
+        } catch(e) {
+          showError('Error processing data: ' + e.message);
+        }
+      }, 0);
+    })
+    .catch(function(err) {
+      showError('Could not fetch the sheet. Make sure it is published to the web (File \u2192 Share \u2192 Publish to web \u2192 CSV) and the URL is correct.\n\nDetails: ' + (err.message || err));
+    });
+}
+
+function processCSV(rows) {
+  // Aggregate rows into: hierarchy[client][brand][channel][date] = {spend, conv}
+  var raw = {}, dateSet = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r    = rows[i];
+    var date = (r[COL_DATE]    || '').trim();
+    var cli  = (r[COL_CLIENT]  || '').trim();
+    var bra  = (r[COL_BRAND]   || '').trim();
+    var cha  = (r[COL_CHANNEL] || '').trim();
+    var cost = parseFloat(r[COL_COST]) || 0;
+    var conv = parseFloat(r[COL_CONV]) || 0;
+    if (!date || !cli || !bra || !cha) continue;
+    if (cost <= 0 && conv <= 0) continue;
+    dateSet[date] = true;
+    if (!raw[cli])       raw[cli]       = {};
+    if (!raw[cli][bra])  raw[cli][bra]  = {};
+    if (!raw[cli][bra][cha]) raw[cli][bra][cha] = {};
+    if (!raw[cli][bra][cha][date]) raw[cli][bra][cha][date] = {spend:0, conv:0};
+    raw[cli][bra][cha][date].spend += cost;
+    raw[cli][bra][cha][date].conv  += conv;
+  }
+
+  var dates = Object.keys(dateSet).sort();
+  var output = {dates: dates, hierarchy: {}};
+
+  // Sort clients and brands alphabetically, same as the Python script
+  var clients = Object.keys(raw).sort();
+  for (var ci = 0; ci < clients.length; ci++) {
+    var cli = clients[ci];
+    output.hierarchy[cli] = {};
+    var brands = Object.keys(raw[cli]).sort();
+    for (var bi = 0; bi < brands.length; bi++) {
+      var bra = brands[bi];
+      output.hierarchy[cli][bra] = {};
+      var channels = Object.keys(raw[cli][bra]).sort();
+      for (var chi = 0; chi < channels.length; chi++) {
+        var cha = channels[chi];
+        var dateData = raw[cli][bra][cha];
+        var spend = dates.map(function(d){ return (dateData[d]||{spend:0}).spend; });
+        var conv  = dates.map(function(d){ return (dateData[d]||{conv:0}).conv; });
+        var cpa   = dates.map(function(d,i){ return conv[i] > 0 ? spend[i]/conv[i] : null; });
+        // Only include accounts that have paid spend
+        if (spend.some(function(v){ return v > 0; })) {
+          output.hierarchy[cli][bra][cha] = {spend:spend, conv:conv, cpa:cpa};
+        }
+      }
+      if (Object.keys(output.hierarchy[cli][bra]).length === 0) delete output.hierarchy[cli][bra];
+    }
+    if (Object.keys(output.hierarchy[cli]).length === 0) delete output.hierarchy[cli];
+  }
+  return output;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
+var CHANNEL_ICONS = {'Google Paid':'🔵','Bing Paid':'🟡','Facebook Paid':'🟦','Instagram Paid':'🟪','YouTube Paid':'🔴','LinkedIn Paid':'🔷','StackAdapt':'🟠','Yahoo Paid':'🟣','Yandex Paid':'⬛','Mailchimp Paid':'🟫'};
+
+function isWeekend(d)  { var w=d.getDay(); return w===0||w===6; }
+function parseDate(s)  { return new Date(s+'T00:00:00'); }
+function slugify(s)    { return s.replace(/[^a-z0-9]/gi,'-').toLowerCase(); }
+function poolVariance(arr) {
+  if (arr.length<2) return 0;
+  var mu=arr.reduce(function(a,b){return a+b;},0)/arr.length;
+  return arr.reduce(function(a,b){return a+Math.pow(b-mu,2);},0)/arr.length;
+}
+function formatCurrency(v) {
+  if (v==null||isNaN(v)) return '—';
+  if (v>=1e6) return '\u00a3'+(v/1e6).toFixed(1)+'M';
+  if (v>=1e3) return '\u00a3'+(v/1e3).toFixed(0)+'k';
+  return '\u00a3'+v.toFixed(0);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EWMA — weekday / weekend pools
+// ══════════════════════════════════════════════════════════════════════════════
+function computeEWMA(dates, series, span) {
+  span=span||14; var alpha=2/(span+1), n=series.length;
+  var ewmaOut=new Array(n), stdOut=new Array(n);
+  var wdS=[],weS=[];
+  for(var j=0;j<n;j++){var v=series[j];if(v>0){if(isWeekend(parseDate(dates[j])))weS.push(v);else wdS.push(v);}}
+  var wdIV=poolVariance(wdS),weIV=poolVariance(weS);
+  var wdE=null,wdV=wdIV,weE=null,weV=weIV;
+  for(var i=0;i<n;i++){
+    var x=series[i],we=isWeekend(parseDate(dates[i]));
+    if(we){
+      if(weE===null){weE=x;weV=weIV;}else{var pe=weE,pv=weV;weE=alpha*x+(1-alpha)*pe;weV=(1-alpha)*(pv+alpha*Math.pow(x-pe,2));}
+      ewmaOut[i]=weE;stdOut[i]=Math.sqrt(Math.max(weV,Math.max(weIV*.5,1e-6)));
+    }else{
+      if(wdE===null){wdE=x;wdV=wdIV;}else{var pe=wdE,pv=wdV;wdE=alpha*x+(1-alpha)*pe;wdV=(1-alpha)*(pv+alpha*Math.pow(x-pe,2));}
+      ewmaOut[i]=wdE;stdOut[i]=Math.sqrt(Math.max(wdV,Math.max(wdIV*.5,1e-6)));
+    }
+  }
+  return{ewma:ewmaOut,ewmaStd:stdOut};
+}
+
+// EWMA — null-skipping for CPA
+function computeEWMASkipNull(dates, series, span) {
+  span=span||14; var alpha=2/(span+1), n=series.length;
+  var ewmaOut=new Array(n), stdOut=new Array(n);
+  var wdS=[],weS=[];
+  for(var j=0;j<n;j++){var v=series[j];if(v!=null&&v>0){if(isWeekend(parseDate(dates[j])))weS.push(v);else wdS.push(v);}}
+  var wdIV=poolVariance(wdS),weIV=poolVariance(weS);
+  var wdE=null,wdV=wdIV,weE=null,weV=weIV;
+  for(var i=0;i<n;i++){
+    var x=series[i],we=isWeekend(parseDate(dates[i])),valid=(x!=null&&x>0);
+    if(we){
+      if(valid){if(weE===null){weE=x;weV=weIV;}else{var pe=weE,pv=weV;weE=alpha*x+(1-alpha)*pe;weV=(1-alpha)*(pv+alpha*Math.pow(x-pe,2));}}
+      ewmaOut[i]=weE;stdOut[i]=weE!==null?Math.sqrt(Math.max(weV,Math.max(weIV*.5,1e-6))):null;
+    }else{
+      if(valid){if(wdE===null){wdE=x;wdV=wdIV;}else{var pe=wdE,pv=wdV;wdE=alpha*x+(1-alpha)*pe;wdV=(1-alpha)*(pv+alpha*Math.pow(x-pe,2));}}
+      ewmaOut[i]=wdE;stdOut[i]=wdE!==null?Math.sqrt(Math.max(wdV,Math.max(wdIV*.5,1e-6))):null;
+    }
+  }
+  return{ewma:ewmaOut,ewmaStd:stdOut};
+}
+
+// Consecutive-zero geometric distribution params
+function consecZeroParams(series, dates) {
+  var wdC=0,wdT=0,weC=0,weT=0;
+  for(var i=0;i<series.length;i++){var we=isWeekend(parseDate(dates[i]));if(we){weT++;if(series[i]>0)weC++;}else{wdT++;if(series[i]>0)wdC++;}}
+  function gp(c,t){var p=t>0?c/t:0;if(p<=0)return{p:0,mean:Infinity,std:0};if(p>=1)return{p:1,mean:0,std:0};var q=1-p;return{p:p,mean:q/p,std:Math.sqrt(q)/p};}
+  return{wd:gp(wdC,wdT),we:gp(weC,weT)};
+}
+function consecZeroThreshold(params,sigma){if(params.p<=0)return Infinity;if(params.p>=1)return 0;return params.mean+sigma*params.std;}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BUILD ACCOUNT DATA
+// ══════════════════════════════════════════════════════════════════════════════
+var WARMUP = 14;
+
+function buildAccountData() {
+  ACCOUNT_DATA = {};
+  var dates = DASHBOARD_DATA.dates;
+  for(var client in DASHBOARD_DATA.hierarchy)
+    for(var brand in DASHBOARD_DATA.hierarchy[client])
+      for(var channel in DASHBOARD_DATA.hierarchy[client][brand]){
+        var key=client+'|||'+brand+'|||'+channel;
+        var acc=DASHBOARD_DATA.hierarchy[client][brand][channel];
+        var sp=computeEWMA(dates,acc.spend,14);
+        var cv=computeEWMA(dates,acc.conv,14);
+        var cp=computeEWMASkipNull(dates,acc.cpa,14);
+        var czp=consecZeroParams(acc.conv,dates);
+        ACCOUNT_DATA[key]={
+          dates:dates,
+          spend:{series:acc.spend,ewma:sp.ewma,ewmaStd:sp.ewmaStd},
+          conv:{series:acc.conv,ewma:cv.ewma,ewmaStd:cv.ewmaStd,czp:czp,hasConv:acc.conv.some(function(v){return v>0;})},
+          cpa:{series:acc.cpa,ewma:cp.ewma,ewmaStd:cp.ewmaStd,hasCPA:acc.cpa.some(function(v){return v!=null&&v>0;})}
+        };
+      }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ANOMALY DETECTION
+// ══════════════════════════════════════════════════════════════════════════════
+function getMagnitudeAnomalies(ewma,ewmaStd,series,dates,sigma){
+  var ad=[],ay=[],nd=[],ny=[];
+  for(var i=0;i<series.length;i++){
+    var v=series[i];if(v==null)continue;
+    var e=ewma[i],s=ewmaStd[i];if(e==null)continue;
+    var anom=i>=WARMUP&&(v>e+sigma*s||(v<Math.max(0,e-sigma*s)&&e>0.5));
+    if(anom){ad.push(dates[i]);ay.push(v);}else{nd.push(dates[i]);ny.push(v);}
+  }
+  return{anomalyDates:ad,anomalyY:ay,normalDates:nd,normalY:ny};
+}
+
+function getConsecZeroAnomalies(series,dates,czp,sigma){
+  var thWd=consecZeroThreshold(czp.wd,sigma),thWe=consecZeroThreshold(czp.we,sigma);
+  var streak=0,ad=[],ay=[];
+  for(var i=0;i<series.length;i++){
+    var we=isWeekend(parseDate(dates[i])),th=we?thWe:thWd;
+    if(series[i]===0||series[i]==null){streak++;if(i>=WARMUP&&streak>th&&th<Infinity){ad.push(dates[i]);ay.push(0);}}
+    else{streak=0;}
+  }
+  return{anomalyDates:ad,anomalyY:ay};
+}
+
+function getAllAnomalies(key,metric,sigma){
+  var d=ACCOUNT_DATA[key][metric];
+  var mag=getMagnitudeAnomalies(d.ewma,d.ewmaStd,d.series,ACCOUNT_DATA[key].dates,sigma);
+  if(metric==='conv'){
+    var cz=getConsecZeroAnomalies(d.series,ACCOUNT_DATA[key].dates,d.czp,sigma);
+    var magSet={};mag.anomalyDates.forEach(function(d2,i){magSet[d2]=true;});
+    cz.anomalyDates.forEach(function(d2,i){if(!magSet[d2]){mag.anomalyDates.push(d2);mag.anomalyY.push(cz.anomalyY[i]);}});
+    mag.czAnomalyDates=cz.anomalyDates;mag.czAnomalyY=cz.anomalyY;
+  }
+  return mag;
+}
+
+function getBands(key,metric,sigma){
+  var d=ACCOUNT_DATA[key][metric];
+  return{
+    upper:d.ewma.map(function(e,i){return e!=null?e+sigma*d.ewmaStd[i]:null;}),
+    lower:d.ewma.map(function(e,i){return e!=null?Math.max(0,e-sigma*d.ewmaStd[i]):null;})
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CHART RENDERING
+// ══════════════════════════════════════════════════════════════════════════════
+var METRIC_COLOUR  = {spend:'#1a56db',conv:'#059669',cpa:'#7c3aed'};
+var METRIC_BAND    = {spend:'rgba(26,86,219,.12)',conv:'rgba(5,150,105,.12)',cpa:'rgba(124,58,237,.12)'};
+var METRIC_PREFIX  = {spend:'\u00a3',conv:'',cpa:'\u00a3'};
+
+function renderChart(containerId,key,metric,sigma){
+  var d=ACCOUNT_DATA[key][metric], dates=ACCOUNT_DATA[key].dates;
+  sigma=sigma||defaultSigma;
+  var bands=getBands(key,metric,sigma), anom=getAllAnomalies(key,metric,sigma);
+  var col=METRIC_COLOUR[metric], band=METRIC_BAND[metric];
+  var czDates=anom.czAnomalyDates||[], czY=anom.czAnomalyY||[];
+  var magDates=[],magY=[];
+  anom.anomalyDates.forEach(function(d2,i){if(czDates.indexOf(d2)<0){magDates.push(d2);magY.push(anom.anomalyY[i]);}});
+
+  var traces=[
+    {x:dates,y:bands.upper,mode:'lines',line:{width:0},showlegend:false,hoverinfo:'skip',type:'scatter',connectgaps:true},
+    {x:dates,y:bands.lower,mode:'lines',line:{width:0},fill:'tonexty',fillcolor:band,showlegend:false,hoverinfo:'skip',type:'scatter',connectgaps:true},
+    {x:dates,y:d.ewma,mode:'lines',line:{color:col,width:2},showlegend:false,hovertemplate:'<b>EWMA</b><br>%{x}<br>%{y:.2f}<extra></extra>',type:'scatter',connectgaps:true},
+    {x:dates,y:d.series,mode:'lines+markers',line:{color:'#94a3b8',width:1.5},marker:{color:'#64748b',size:3.5,opacity:.7},showlegend:false,hovertemplate:'<b>Actual</b><br>%{x}<br>%{y:.2f}<extra></extra>',type:'scatter',connectgaps:metric==='cpa'},
+    {x:magDates,y:magY,mode:'markers',marker:{color:'#e02424',size:9,symbol:'circle',line:{color:'#fff',width:1.5}},showlegend:false,hovertemplate:'<b>\u26a0\ufe0f Anomaly</b><br>%{x}<br>%{y:.2f}<extra></extra>',type:'scatter'}
+  ];
+  if(metric==='conv')traces.push({x:czDates,y:czY,mode:'markers',marker:{color:'#f97316',size:9,symbol:'diamond',line:{color:'#fff',width:1.5}},showlegend:false,hovertemplate:'<b>\ud83d\udfe0 Extended zero streak</b><br>%{x}<extra></extra>',type:'scatter'});
+
+  var el=document.getElementById(containerId), h=el?el.offsetHeight||190:190;
+  Plotly.newPlot(containerId,traces,{
+    margin:{t:6,b:32,l:metric==='cpa'?58:48,r:8},height:h,
+    plot_bgcolor:'#fafafa',paper_bgcolor:'transparent',
+    xaxis:{tickformat:'%d %b',tickfont:{size:10,color:'#9ca3af'},gridcolor:'#f0f0f0',linecolor:'#e5e7eb'},
+    yaxis:{tickprefix:METRIC_PREFIX[metric],tickfont:{size:10,color:'#9ca3af'},gridcolor:'#f0f0f0',linecolor:'#e5e7eb',rangemode:'tozero'},
+    showlegend:false,hovermode:'closest',
+    hoverlabel:{bgcolor:'#1e293b',bordercolor:'#334155',font:{color:'white',size:12}}
+  },{responsive:true,displayModeBar:false});
+  renderedCharts[containerId]=true;
+  chartRegistry[containerId]={key:key,metric:metric};
+}
+
+function updateChart(containerId,key,metric,sigma){
+  var anom=getAllAnomalies(key,metric,sigma), bands=getBands(key,metric,sigma);
+  var czDates=anom.czAnomalyDates||[],czY=anom.czAnomalyY||[];
+  var magDates=[],magY=[];
+  anom.anomalyDates.forEach(function(d2,i){if(czDates.indexOf(d2)<0){magDates.push(d2);magY.push(anom.anomalyY[i]);}});
+  Plotly.restyle(containerId,{y:[bands.upper]},[0]);
+  Plotly.restyle(containerId,{y:[bands.lower]},[1]);
+  Plotly.restyle(containerId,{x:[magDates],y:[magY]},[4]);
+  if(metric==='conv')Plotly.restyle(containerId,{x:[czDates],y:[czY]},[5]);
+  var total=anom.anomalyDates.length+(anom.czAnomalyDates?anom.czAnomalyDates.filter(function(d2){return anom.anomalyDates.indexOf(d2)<0;}).length:0);
+  var badge=document.getElementById('badge-'+containerId);
+  if(badge){badge.textContent=total>0?total+(total===1?' anomaly':' anomalies'):'No anomalies';badge.className='badge '+(total>0?'badge-red':'badge-green');}
+}
+
+function onSliderChange(slider,containerId,key,metric){
+  var sigma=parseFloat(slider.value);
+  var valEl=slider.parentElement.querySelector('.sigma-val');
+  if(valEl)valEl.textContent=sigma.toFixed(1)+'\u03c3';
+  var pct=((sigma-.5)/(3.-.5))*100;
+  slider.style.setProperty('--fill',pct+'%');
+  if(renderedCharts[containerId])updateChart(containerId,key,metric,sigma);
+}
+
+function makeSlider(containerId,key,metric){
+  var ek=key.replace(/'/g,"\\'");
+  return '<div class="slider-row">'
+    +'<span class="slider-label">Threshold:</span>'
+    +'<input type="range" class="sigma-slider" min="0.5" max="3.0" step="0.1" value="2.0" style="--fill:60%"'
+    +' oninput="onSliderChange(this,\''+containerId+'\',\''+ek+'\',\''+metric+'\')">'
+    +'<span class="sigma-val">2.0\u03c3</span></div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BUILD DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+function anomalyCountForDisplay(key,metric,sigma){
+  var anom=getAllAnomalies(key,metric,sigma);
+  var czExtra=metric==='conv'&&anom.czAnomalyDates?anom.czAnomalyDates.filter(function(d2){return anom.anomalyDates.indexOf(d2)<0;}).length:0;
+  return anom.anomalyDates.length+czExtra;
+}
+
+function buildDashboard() {
+  // Reset state for re-render on refresh
+  allChartEls=[];renderedCharts={};chartRegistry={};
+  buildAccountData();
+
+  var dates=DASHBOARD_DATA.dates;
+  var container=document.getElementById('clientsContainer');
+  container.innerHTML='';
+  var anomalyRows=[],totalAnomalies=0,totalAccounts=0;
+
+  for(var client in DASHBOARD_DATA.hierarchy){
+    var brands=DASHBOARD_DATA.hierarchy[client];
+    var cSlug=slugify(client), clientAnom=0, clientSpend=0, clientChannels=0;
+
+    for(var brand in brands) for(var channel in brands[brand]){
+      var key=client+'|||'+brand+'|||'+channel;
+      var acc=ACCOUNT_DATA[key];
+      clientSpend+=acc.spend.series.reduce(function(a,b){return a+b;},0);
+      ['spend','conv','cpa'].forEach(function(m){var c=anomalyCountForDisplay(key,m,defaultSigma);clientAnom+=c;totalAnomalies+=c;});
+      totalAccounts++;clientChannels++;
+
+      ['spend','conv','cpa'].forEach(function(m){
+        var d=acc[m];
+        if(m==='conv'&&!d.hasConv)return;
+        if(m==='cpa'&&!d.hasCPA)return;
+        var anom=getAllAnomalies(key,m,defaultSigma);
+        var czExtra=m==='conv'&&anom.czAnomalyDates?anom.czAnomalyDates.filter(function(d2){return anom.anomalyDates.indexOf(d2)<0;}).length:0;
+        var totalCnt=anom.anomalyDates.length+czExtra;
+        if(totalCnt===0)return;
+        var allD=anom.anomalyDates.slice();
+        if(anom.czAnomalyDates)anom.czAnomalyDates.forEach(function(d2){if(allD.indexOf(d2)<0)allD.push(d2);});
+        allD.sort();
+        var lastDate=allD[allD.length-1], lastIdx=dates.indexOf(lastDate), lastSigma=0;
+        if(lastIdx>=0&&d.ewma[lastIdx]!=null&&d.ewmaStd[lastIdx]>0){var v=d.series[lastIdx];if(v!=null)lastSigma=Math.abs(v-d.ewma[lastIdx])/d.ewmaStd[lastIdx];}
+        anomalyRows.push({client:client,brand:brand,channel:channel,metric:m,count:totalCnt,lastDate:lastDate,lastSigma:lastSigma,key:key});
+      });
+    }
+
+    var clientDiv=document.createElement('div');
+    clientDiv.className='client-section';clientDiv.id='client-'+cSlug;
+    var anomBadge=clientAnom>0?'<span class="client-anomaly-badge">\u26a0 '+clientAnom+'</span>':'';
+    var html='<div class="client-header" onclick="toggleClient(\''+cSlug+'\')" id="ch-'+cSlug+'">'
+      +'<span class="chevron">\u25bc</span><span class="client-name">'+client+'</span>'
+      +'<span class="client-meta">'+formatCurrency(clientSpend)+' \u00b7 '+clientChannels+' channel'+(clientChannels!==1?'s':'')+'</span>'
+      +anomBadge+'</div><div class="client-body" id="cb-'+cSlug+'">';
+
+    for(var brand in brands){
+      var bSlug=cSlug+'-'+slugify(brand),brandAnom=0,brandSpend=0,brandCh=0;
+      for(var ch in brands[brand]){
+        var k=client+'|||'+brand+'|||'+ch;
+        brandSpend+=ACCOUNT_DATA[k].spend.series.reduce(function(a,b){return a+b;},0);
+        ['spend','conv','cpa'].forEach(function(m){brandAnom+=anomalyCountForDisplay(k,m,defaultSigma);});
+        brandCh++;
+      }
+      html+='<div class="brand-section">'
+        +'<div class="brand-header" onclick="toggleBrand(\''+bSlug+'\')" id="bh-'+bSlug+'">'
+        +'<span class="brand-chevron">\u25bc</span><span class="brand-name">'+brand+'</span>'
+        +'<span class="brand-meta">'+formatCurrency(brandSpend)+' \u00b7 '+brandCh+' ch.</span>'
+        +(brandAnom>0?'<span class="brand-anomaly">\u26a0 '+brandAnom+'</span>':'')
+        +'</div><div class="brand-body" id="bb-'+bSlug+'"><div class="channels-grid">';
+
+      for(var channel in brands[brand]){
+        var key=client+'|||'+brand+'|||'+channel;
+        var acc=ACCOUNT_DATA[key];
+        var cid=slugify(key), icon=CHANNEL_ICONS[channel]||'\ud83d\udcca';
+        var spendId='s-'+cid, convId='c-'+cid, cpaId='p-'+cid;
+        var spendAnom=anomalyCountForDisplay(key,'spend',defaultSigma);
+        var convAnom=acc.conv.hasConv?anomalyCountForDisplay(key,'conv',defaultSigma):0;
+        var cpaAnom=acc.cpa.hasCPA?anomalyCountForDisplay(key,'cpa',defaultSigma):0;
+        allChartEls.push({containerId:spendId,key:key,metric:'spend'});
+        if(acc.conv.hasConv)allChartEls.push({containerId:convId,key:key,metric:'conv'});
+        if(acc.cpa.hasCPA)allChartEls.push({containerId:cpaId,key:key,metric:'cpa'});
+
+        function abh(id,cnt){return '<span id="badge-'+id+'" class="badge '+(cnt>0?'badge-red':'badge-green')+'">'+(cnt>0?cnt+(cnt===1?' anomaly':' anomalies'):'No anomalies')+'</span>';}
+
+        html+='<div class="channel-card">'
+          +'<div class="channel-header"><span>'+icon+'</span><span class="channel-name">'+channel+'</span>'
+          +'<div class="channel-badges">'+abh(spendId,spendAnom)+(acc.conv.hasConv?abh(convId,convAnom):'')+(acc.cpa.hasCPA?abh(cpaId,cpaAnom):'')+'</div></div>'
+          +'<div class="metric-section"><div class="metric-label">\ud83d\udcb0 Spend</div>'
+          +'<div class="chart-main" id="'+spendId+'"></div>'+makeSlider(spendId,key,'spend')+'</div>';
+
+        if(acc.conv.hasConv||acc.cpa.hasCPA){
+          html+='<div class="conv-cpa-row">';
+          if(acc.conv.hasConv)html+='<div class="metric-section"><div class="metric-label">\ud83c\udfaf Conversions</div><div class="chart-sm" id="'+convId+'"></div>'+makeSlider(convId,key,'conv')+'</div>';
+          if(acc.cpa.hasCPA)html+='<div class="metric-section"><div class="metric-label">\ud83d\udcb7 CPA</div><div class="chart-sm" id="'+cpaId+'"></div>'+makeSlider(cpaId,key,'cpa')+'</div>';
+          else if(acc.conv.hasConv)html+='<div class="metric-section"><div class="metric-label">\ud83d\udcb7 CPA</div><p class="no-conv-note">Insufficient conversion data.</p></div>';
+          html+='</div>';
+        }else{
+          html+='<p class="no-conv-note" style="margin-top:4px">No conversion data for this account.</p>';
+        }
+        html+='</div>';
+      }
+      html+='</div></div></div>';
+    }
+    html+='</div>';
+    clientDiv.innerHTML=html;
+    container.appendChild(clientDiv);
+  }
+
+  // Summary stats
+  document.getElementById('statAccounts').textContent=totalAccounts;
+  document.getElementById('statClients').textContent=Object.keys(DASHBOARD_DATA.hierarchy).length;
+  document.getElementById('statAnomalies').textContent=totalAnomalies;
+  document.getElementById('statDateRange').textContent=dates[0].slice(5).replace('-','/')+' \u2013 '+dates[dates.length-1].slice(5).replace('-','/');
+
+  // Client filter dropdown — rebuild on each refresh
+  var cf=document.getElementById('clientFilter');
+  cf.innerHTML='<option value="">All Clients</option>';
+  Object.keys(DASHBOARD_DATA.hierarchy).sort().forEach(function(c){var o=document.createElement('option');o.value=c;o.textContent=c;cf.appendChild(o);});
+
+  // Anomaly table
+  anomalyRows.sort(function(a,b){return new Date(b.lastDate)-new Date(a.lastDate);});
+  var tbody=document.getElementById('anomalyTableBody');
+  tbody.innerHTML='';
+  var refDate=new Date(dates[dates.length-1]+'T00:00:00');
+  var ML={spend:'\ud83d\udcb0 Spend',conv:'\ud83c\udfaf Conv.',cpa:'\ud83d\udcb7 CPA'};
+  var MB={spend:'badge-blue',conv:'badge-green',cpa:'badge-orange'};
+  anomalyRows.forEach(function(row){
+    var tr=document.createElement('tr');
+    var daysAgo=Math.floor((refDate-new Date(row.lastDate+'T00:00:00'))/86400000);
+    var pct=Math.min(100,Math.max(0,Math.round((row.lastSigma-1)*50)));
+    var hue=Math.round(120*(1-pct/100));
+    tr.innerHTML='<td><a class="jump-link" onclick="jumpToClient(\''+slugify(row.client)+'\')">'+row.client+'</a></td>'
+      +'<td>'+row.brand+'</td><td>'+row.channel+'</td>'
+      +'<td><span class="badge '+MB[row.metric]+'">'+ML[row.metric]+'</span></td>'
+      +'<td><span class="badge badge-red">'+row.count+'</span></td>'
+      +'<td>'+row.lastDate+' <span style="color:#9ca3af;font-size:10px">('+daysAgo+'d ago)</span></td>'
+      +'<td><span style="display:inline-block;padding:2px 9px;border-radius:9999px;font-size:11px;font-weight:700;background:hsl('+hue+',70%,90%);color:hsl('+hue+',60%,32%)">'+pct+'%</span></td>';
+    tbody.appendChild(tr);
+  });
+  if(anomalyRows.length===0)tbody.innerHTML='<tr><td colspan="7" class="no-data">No anomalies at 2\u03c3 default</td></tr>';
+
+  // Last updated timestamp
+  var now=new Date();
+  document.getElementById('headerUpdated').textContent='Updated '+now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' \u00b7 data to '+dates[dates.length-1];
+  document.getElementById('refreshBtn').style.display='flex';
+
+  hideLoading();
+  setupIntersectionObserver();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LAZY RENDERING
+// ══════════════════════════════════════════════════════════════════════════════
+function setupIntersectionObserver(){
+  // Disconnect any previous observer
+  if(window._dashObserver)window._dashObserver.disconnect();
+  window._dashObserver=new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if(entry.isIntersecting){
+        var id=entry.target.id;
+        if(!renderedCharts[id]){
+          var found=allChartEls.find(function(c){return c.containerId===id;});
+          if(found)renderChart(id,found.key,found.metric,defaultSigma);
+        }
+      }
+    });
+  },{rootMargin:'300px 0px',threshold:0});
+  allChartEls.forEach(function(c){var el=document.getElementById(c.containerId);if(el)window._dashObserver.observe(el);});
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REFRESH
+// ══════════════════════════════════════════════════════════════════════════════
+function triggerRefresh(){
+  var btn=document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  btn.disabled=true;
+  fetchAndProcess(SHEET_CSV_URL, function(){
+    buildDashboard();
+    btn.classList.remove('spinning');
+    btn.disabled=false;
+  });
+}
+
+function scheduleAutoRefresh(){
+  if(autoRefreshTimer)clearInterval(autoRefreshTimer);
+  if(AUTO_REFRESH_MINUTES>0){
+    autoRefreshTimer=setInterval(function(){
+      fetchAndProcess(SHEET_CSV_URL, function(){ buildDashboard(); });
+    }, AUTO_REFRESH_MINUTES*60*1000);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UI CONTROLS
+// ══════════════════════════════════════════════════════════════════════════════
+function toggleClient(s){var b=document.getElementById('cb-'+s),h=document.getElementById('ch-'+s);if(b){b.classList.toggle('hidden');h.classList.toggle('collapsed');}}
+function toggleBrand(s){var b=document.getElementById('bb-'+s),h=document.getElementById('bh-'+s);if(b){b.classList.toggle('hidden');h.classList.toggle('collapsed');}}
+function toggleSection(id,btn){var el=document.getElementById(id);if(!el)return;var c=el.style.display==='none';el.style.display=c?'':'none';document.getElementById('summaryToggleLabel').textContent=c?'click to collapse \u25b2':'click to expand \u25bc';}
+function expandAll(){document.querySelectorAll('.client-body.hidden,.brand-body.hidden').forEach(function(e){e.classList.remove('hidden');});document.querySelectorAll('.client-header.collapsed,.brand-header.collapsed').forEach(function(e){e.classList.remove('collapsed');});}
+function collapseAll(){document.querySelectorAll('.client-body:not(.hidden)').forEach(function(e){e.classList.add('hidden');});document.querySelectorAll('.client-header:not(.collapsed)').forEach(function(e){e.classList.add('collapsed');});}
+function jumpToClient(s){var el=document.getElementById('client-'+s);if(!el)return;document.getElementById('cb-'+s).classList.remove('hidden');document.getElementById('ch-'+s).classList.remove('collapsed');setTimeout(function(){el.scrollIntoView({behavior:'smooth',block:'start'});},100);}
+function applyFilters(){var sel=document.getElementById('clientFilter').value,ao=document.getElementById('anomalyOnly').checked;document.querySelectorAll('.client-section').forEach(function(s){var n=s.querySelector('.client-name').textContent,ha=!!s.querySelector('.client-anomaly-badge');s.style.display=(!sel||n===sel)&&(!ao||ha)?'':'none';});}
+
+function loadFromInput(){
+  var url=document.getElementById('urlInput').value.trim();
+  if(!url){alert('Please paste a Google Sheets CSV URL first.');return;}
+  SHEET_CSV_URL=url;
+  document.getElementById('configBanner').classList.add('hidden');
+  startWithURL(url);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOADING STATES
+// ══════════════════════════════════════════════════════════════════════════════
+function setLoading(msg){
+  document.getElementById('loadingOverlay').style.display='flex';
+  document.getElementById('loadingMsg').textContent=msg||'Loading…';
+}
+function hideLoading(){document.getElementById('loadingOverlay').style.display='none';}
+function showError(msg){
+  hideLoading();
+  var e=document.getElementById('errorBox');
+  e.style.display='block';
+  e.innerText='\u274c '+msg;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SCRIPT LOADER & INIT
+// ══════════════════════════════════════════════════════════════════════════════
+function startWithURL(url){
+  if(typeof Plotly==='undefined'||typeof Papa==='undefined'){
+    showError('Required libraries did not load. Check your internet connection.');return;
+  }
+  fetchAndProcess(url, function(){
+    buildDashboard();
+    scheduleAutoRefresh();
+  });
+}
+
+function loadLibraries(callback){
+  var plotlyOk=false, papaOk=false;
+  function check(){if(plotlyOk&&papaOk)callback();}
+
+  function loadScript(src, fallback, onOk){
+    var s=document.createElement('script');
+    s.src=src;
+    s.onload=function(){onOk();check();};
+    s.onerror=function(){
+      if(!fallback){showError('Failed to load '+src);return;}
+      var s2=document.createElement('script');
+      s2.src=fallback;s2.onload=function(){onOk();check();};
+      s2.onerror=function(){showError('Failed to load charting libraries. Check internet connection.');};
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s);
+  }
+
+  loadScript(
+    'https://cdn.plot.ly/plotly-2.26.0.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js',
+    function(){plotlyOk=true;}
+  );
+  loadScript(
+    'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js',
+    null,
+    function(){papaOk=true;}
+  );
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  setLoading('Loading libraries…');
+  loadLibraries(function(){
+    if(SHEET_CSV_URL && SHEET_CSV_URL.trim() !== ''){
+      document.getElementById('configBanner').classList.add('hidden');
+      startWithURL(SHEET_CSV_URL);
+    } else {
+      // Show config banner, hide loading overlay until user provides URL
+      hideLoading();
+    }
+  });
+});
+</script>
+</body>
+</html>
