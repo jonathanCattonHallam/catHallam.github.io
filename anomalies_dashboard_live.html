@@ -195,6 +195,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
     <div class="legend-bar">
       <span class="legend-item"><span class="l-dot" style="background:#e02424"></span> Magnitude anomaly</span>
       <span class="legend-item"><span class="l-dot" style="background:#f97316"></span> Extended zero streak</span>
+      <span class="legend-item"><span style="font-size:13px;font-weight:700;color:#475569;line-height:1;">✕</span>&nbsp;Spend paused</span>
       <span class="legend-item"><span class="l-line" style="background:#1a56db"></span> WD/WE EWMA (14d)</span>
       <span class="legend-item"><span class="l-line" style="background:#94a3b8"></span> Actual</span>
       <span class="legend-item"><span class="l-rect" style="background:rgba(26,86,219,.12)"></span> ±σ band</span>
@@ -423,7 +424,7 @@ function buildAccountData() {
         ACCOUNT_DATA[key]={
           dates:dates,
           spend:{series:acc.spend,ewma:sp.ewma,ewmaStd:sp.ewmaStd},
-          conv:{series:acc.conv,ewma:cv.ewma,ewmaStd:cv.ewmaStd,czp:czp,hasConv:acc.conv.some(function(v){return v>0;})},
+          conv:{series:acc.conv,ewma:cv.ewma,ewmaStd:cv.ewmaStd,czp:czp,hasConv:acc.conv.some(function(v){return v>0;}),spendSeries:acc.spend},
           cpa:{series:acc.cpa,ewma:cp.ewma,ewmaStd:cp.ewmaStd,hasCPA:acc.cpa.some(function(v){return v!=null&&v>0;})}
         };
       }
@@ -443,13 +444,27 @@ function getMagnitudeAnomalies(ewma,ewmaStd,series,dates,sigma){
   return{anomalyDates:ad,anomalyY:ay,normalDates:nd,normalY:ny};
 }
 
-function getConsecZeroAnomalies(series,dates,czp,sigma){
+function getConsecZeroAnomalies(series,dates,czp,sigma,spendSeries){
   var thWd=consecZeroThreshold(czp.wd,sigma),thWe=consecZeroThreshold(czp.we,sigma);
   var streak=0,ad=[],ay=[];
   for(var i=0;i<series.length;i++){
     var we=isWeekend(parseDate(dates[i])),th=we?thWe:thWd;
-    if(series[i]===0||series[i]==null){streak++;if(i>=WARMUP&&streak>th&&th<Infinity){ad.push(dates[i]);ay.push(0);}}
-    else{streak=0;}
+    var spendZero=spendSeries&&(spendSeries[i]===0||spendSeries[i]==null);
+    if(series[i]===0||series[i]==null){
+      if(spendZero){streak=0;} // account paused — don't count, reset streak
+      else{streak++;if(i>=WARMUP&&streak>th&&th<Infinity){ad.push(dates[i]);ay.push(0);}}
+    }else{streak=0;}
+  }
+  return{anomalyDates:ad,anomalyY:ay};
+}
+
+// Fires once on the first day spend transitions from non-zero → zero (account paused)
+function getSpendDropToZeroAnomalies(series,dates){
+  var ad=[],ay=[],lastNonZero=false;
+  for(var i=0;i<series.length;i++){
+    var zero=(series[i]===0||series[i]==null);
+    if(zero&&lastNonZero&&i>=WARMUP){ad.push(dates[i]);ay.push(0);}
+    lastNonZero=!zero; // true only when current day has spend, so next zero fires once
   }
   return{anomalyDates:ad,anomalyY:ay};
 }
@@ -458,10 +473,14 @@ function getAllAnomalies(key,metric,sigma){
   var d=ACCOUNT_DATA[key][metric];
   var mag=getMagnitudeAnomalies(d.ewma,d.ewmaStd,d.series,ACCOUNT_DATA[key].dates,sigma);
   if(metric==='conv'){
-    var cz=getConsecZeroAnomalies(d.series,ACCOUNT_DATA[key].dates,d.czp,sigma);
+    var cz=getConsecZeroAnomalies(d.series,ACCOUNT_DATA[key].dates,d.czp,sigma,d.spendSeries);
     var magSet={};mag.anomalyDates.forEach(function(d2,i){magSet[d2]=true;});
     cz.anomalyDates.forEach(function(d2,i){if(!magSet[d2]){mag.anomalyDates.push(d2);mag.anomalyY.push(cz.anomalyY[i]);}});
     mag.czAnomalyDates=cz.anomalyDates;mag.czAnomalyY=cz.anomalyY;
+  }
+  if(metric==='spend'){
+    var sd=getSpendDropToZeroAnomalies(d.series,ACCOUNT_DATA[key].dates);
+    mag.sdAnomalyDates=sd.anomalyDates;mag.sdAnomalyY=sd.anomalyY;
   }
   return mag;
 }
@@ -490,6 +509,8 @@ function renderChart(containerId,key,metric,sigma){
   var magDates=[],magY=[];
   anom.anomalyDates.forEach(function(d2,i){if(czDates.indexOf(d2)<0){magDates.push(d2);magY.push(anom.anomalyY[i]);}});
 
+  var sdDates=anom.sdAnomalyDates||[], sdY=anom.sdAnomalyY||[];
+
   var traces=[
     {x:dates,y:bands.upper,mode:'lines',line:{width:0},showlegend:false,hoverinfo:'skip',type:'scatter',connectgaps:true},
     {x:dates,y:bands.lower,mode:'lines',line:{width:0},fill:'tonexty',fillcolor:band,showlegend:false,hoverinfo:'skip',type:'scatter',connectgaps:true},
@@ -498,6 +519,7 @@ function renderChart(containerId,key,metric,sigma){
     {x:magDates,y:magY,mode:'markers',marker:{color:'#e02424',size:9,symbol:'circle',line:{color:'#fff',width:1.5}},showlegend:false,hovertemplate:'<b>\u26a0\ufe0f Anomaly</b><br>%{x}<br>%{y:.2f}<extra></extra>',type:'scatter'}
   ];
   if(metric==='conv')traces.push({x:czDates,y:czY,mode:'markers',marker:{color:'#f97316',size:9,symbol:'diamond',line:{color:'#fff',width:1.5}},showlegend:false,hovertemplate:'<b>\ud83d\udfe0 Extended zero streak</b><br>%{x}<extra></extra>',type:'scatter'});
+  if(metric==='spend')traces.push({x:sdDates,y:sdY,mode:'markers',marker:{color:'#475569',size:10,symbol:'x',line:{color:'#475569',width:2.5}},showlegend:false,hovertemplate:'<b>\u23f8 Spend paused</b><br>%{x}<extra></extra>',type:'scatter'});
 
   var el=document.getElementById(containerId), h=el?el.offsetHeight||190:190;
   Plotly.newPlot(containerId,traces,{
@@ -521,6 +543,7 @@ function updateChart(containerId,key,metric,sigma){
   Plotly.restyle(containerId,{y:[bands.lower]},[1]);
   Plotly.restyle(containerId,{x:[magDates],y:[magY]},[4]);
   if(metric==='conv')Plotly.restyle(containerId,{x:[czDates],y:[czY]},[5]);
+  if(metric==='spend'){var sdDates=anom.sdAnomalyDates||[],sdY=anom.sdAnomalyY||[];Plotly.restyle(containerId,{x:[sdDates],y:[sdY]},[5]);}
   var total=anom.anomalyDates.length+(anom.czAnomalyDates?anom.czAnomalyDates.filter(function(d2){return anom.anomalyDates.indexOf(d2)<0;}).length:0);
   var badge=document.getElementById('badge-'+containerId);
   if(badge){badge.textContent=total>0?total+(total===1?' anomaly':' anomalies'):'No anomalies';badge.className='badge '+(total>0?'badge-red':'badge-green');}
@@ -550,7 +573,8 @@ function makeSlider(containerId,key,metric){
 function anomalyCountForDisplay(key,metric,sigma){
   var anom=getAllAnomalies(key,metric,sigma);
   var czExtra=metric==='conv'&&anom.czAnomalyDates?anom.czAnomalyDates.filter(function(d2){return anom.anomalyDates.indexOf(d2)<0;}).length:0;
-  return anom.anomalyDates.length+czExtra;
+  var sdExtra=metric==='spend'&&anom.sdAnomalyDates?anom.sdAnomalyDates.length:0;
+  return anom.anomalyDates.length+czExtra+sdExtra;
 }
 
 function buildDashboard() {
@@ -580,10 +604,12 @@ function buildDashboard() {
         if(m==='cpa'&&!d.hasCPA)return;
         var anom=getAllAnomalies(key,m,defaultSigma);
         var czExtra=m==='conv'&&anom.czAnomalyDates?anom.czAnomalyDates.filter(function(d2){return anom.anomalyDates.indexOf(d2)<0;}).length:0;
-        var totalCnt=anom.anomalyDates.length+czExtra;
+        var sdExtra=m==='spend'&&anom.sdAnomalyDates?anom.sdAnomalyDates.length:0;
+        var totalCnt=anom.anomalyDates.length+czExtra+sdExtra;
         if(totalCnt===0)return;
         var allD=anom.anomalyDates.slice();
         if(anom.czAnomalyDates)anom.czAnomalyDates.forEach(function(d2){if(allD.indexOf(d2)<0)allD.push(d2);});
+        if(anom.sdAnomalyDates)anom.sdAnomalyDates.forEach(function(d2){if(allD.indexOf(d2)<0)allD.push(d2);});
         allD.sort();
         var lastDate=allD[allD.length-1], lastIdx=dates.indexOf(lastDate), lastSigma=0;
         if(lastIdx>=0&&d.ewma[lastIdx]!=null&&d.ewmaStd[lastIdx]>0){var v=d.series[lastIdx];if(v!=null)lastSigma=Math.abs(v-d.ewma[lastIdx])/d.ewmaStd[lastIdx];}
